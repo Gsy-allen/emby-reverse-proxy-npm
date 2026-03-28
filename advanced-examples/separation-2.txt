@@ -1,0 +1,68 @@
+# ==========================================
+# 核心入口：反代 Emby 主程序
+# ==========================================
+location / {
+    proxy_pass $forward_scheme://$server:$port;
+
+    # 【必须补齐 1】伪装 Host，让 Emby 主站以为请求来自其原生域名
+    proxy_set_header Host $server;
+    proxy_ssl_name $server;
+    proxy_ssl_server_name on;
+
+    # 【必须补齐 2】完善流媒体支持，Range 和 If-Range 成对出现，保证视频丝滑拖拽
+    proxy_set_header Range $http_range;
+    proxy_set_header If-Range $http_if_range;
+
+    # 【核心拦截】将推流地址重定向到伪装路径
+    proxy_redirect https://stream.example.com https://yourdomain.com/s1/;
+
+    # 【抹除请求特征】对 Emby 主程序隐身
+    proxy_set_header X-Real-IP "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header Forwarded "";
+    proxy_set_header Via "";
+
+    # 【必须补齐 3】抹除响应特征，对客户端隐藏 Nginx 身份
+    more_clear_headers 'Server';
+    proxy_hide_header X-Powered-By;
+}
+
+# ==========================================
+# 推流节点：代理 stream.example.com
+# ==========================================
+location /s1/ {
+    # 路径匹配规范化，加上结尾的斜杠更安全
+    rewrite ^/s1(/.*)$ $1 break;
+
+    # 真实推流地址
+    proxy_pass https://stream.example.com;
+    # 添加sni信息
+    proxy_ssl_server_name on;
+    proxy_ssl_name stream.example.com;
+    # 传递 Range 头，实现视频拖拽
+    proxy_set_header Range $http_range;
+    proxy_set_header If-Range $http_if_range;
+
+    proxy_set_header Referer "https://example-emby.com/web/index.html";
+    proxy_set_header Host $proxy_host;
+
+    # 【必须补齐 4】关闭缓冲并增加超时时间，彻底解决看长视频中途断开的问题
+    proxy_buffering off;
+    proxy_connect_timeout 60s;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    # 【抹除请求特征】对 推流服务器 隐身
+    proxy_set_header X-Real-IP "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header Forwarded "";
+    proxy_set_header Via "";
+
+    # 【必须补齐 5】抹除响应特征，对客户端隐藏身份
+    more_clear_headers 'Server';
+    proxy_hide_header X-Powered-By;
+}

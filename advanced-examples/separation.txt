@@ -36,7 +36,7 @@ location / {
 # ==========================================
 location /s1/ {
     rewrite ^/s1(/.*)$ $1 break;
-    proxy_pass http://stream.example.com;
+    proxy_pass http://stream1.example.com;
 
     proxy_set_header Referer "https://example-emby.com/web/index.html";
     proxy_set_header Host $proxy_host;

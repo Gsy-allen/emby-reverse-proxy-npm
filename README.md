@@ -7,7 +7,8 @@
 | 场景 | 说明 |
 |------|------|
 | 前后端不分离 | Emby 主站和推流在同一台服务器上，无独立推流节点 |
-| 前后端分离 | Emby 主站与推流节点分离，后端返回 302 重定向到独立的推流域名 |
+| 前后端分离 (HTTP 推流) | Emby 主站与推流节点分离，推流节点为 HTTP |
+| 前后端分离 (HTTPS 推流) | 同上，但推流节点为 HTTPS，需额外配置 SNI |
 | LilyEmby | 需要对响应体做域名替换的特殊场景（如 JSON/XML 中包含硬编码的源站域名） |
 
 ## 快速开始
@@ -82,9 +83,9 @@ location / {
 
 ---
 
-### 方案二：前后端分离（[separation.txt](advanced-examples/separation.txt)）
+### 方案二：前后端分离 — HTTP 推流（[separation.txt](advanced-examples/separation.txt)）
 
-> **适用于**：Emby 后端返回 302 重定向到独立推流域名（如 `stream1.example.com`、`stream2.example.com`）的部署架构。
+> **适用于**：Emby 后端返回 302 重定向到独立 **HTTP** 推流域名（如 `stream1.example.com`、`stream2.example.com`）的部署架构。
 
 在方案一的基础上增加了 **redirect 拦截 + 推流节点代理**：
 
@@ -138,7 +139,7 @@ location / {
 # 推流节点 1
 location /s1/ {
     rewrite ^/s1(/.*)$ $1 break;
-    proxy_pass http://stream.example.com;
+    proxy_pass http://stream1.example.com;
 
     proxy_set_header Referer "https://example-emby.com/web/index.html";
     proxy_set_header Host $proxy_host;
@@ -162,6 +163,89 @@ location /s1/ {
 }
 
 # 推流节点 2、3 结构相同，修改域名即可（完整版见源文件）
+```
+
+</details>
+
+---
+
+### 方案二-B：前后端分离 — HTTPS 推流（[separation-2.txt](advanced-examples/separation-2.txt)）
+
+> **适用于**：与方案二相同的架构，但推流节点使用 **HTTPS**，需要额外配置 SNI 信息。
+
+与方案二的核心区别：
+
+1. **`proxy_redirect` 和 `proxy_pass` 使用 `https://`** — 匹配推流节点的实际协议
+2. **推流节点增加 SNI 配置** — `proxy_ssl_server_name on` + `proxy_ssl_name` 确保 TLS 握手时发送正确的域名，否则证书校验失败
+
+使用前需要修改以下占位符：
+
+| 占位符 | 替换为 |
+|--------|--------|
+| `stream.example.com` | 推流节点的真实域名 |
+| `yourdomain.com` | 你自己的反代域名 |
+| `example-emby.com` | Emby 主站的源域名 |
+
+> **提示**：如有多个 HTTPS 推流节点，复制 `/s1/` 块并修改编号、域名和 `proxy_ssl_name` 即可。
+
+<details>
+<summary>点击展开完整配置</summary>
+
+```nginx
+# 核心入口：反代 Emby 主程序
+location / {
+    proxy_pass $forward_scheme://$server:$port;
+
+    proxy_set_header Host $server;
+    proxy_ssl_name $server;
+    proxy_ssl_server_name on;
+
+    proxy_set_header Range $http_range;
+    proxy_set_header If-Range $http_if_range;
+
+    # 将 HTTPS 推流地址重定向到伪装路径
+    proxy_redirect https://stream.example.com https://yourdomain.com/s1/;
+
+    proxy_set_header X-Real-IP "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header Forwarded "";
+    proxy_set_header Via "";
+
+    more_clear_headers 'Server';
+    proxy_hide_header X-Powered-By;
+}
+
+# 推流节点（HTTPS）
+location /s1/ {
+    rewrite ^/s1(/.*)$ $1 break;
+    proxy_pass https://stream.example.com;
+
+    # HTTPS 推流必须配置 SNI
+    proxy_ssl_server_name on;
+    proxy_ssl_name stream.example.com;
+
+    proxy_set_header Range $http_range;
+    proxy_set_header If-Range $http_if_range;
+    proxy_set_header Referer "https://example-emby.com/web/index.html";
+    proxy_set_header Host $proxy_host;
+
+    proxy_buffering off;
+    proxy_connect_timeout 60s;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    proxy_set_header X-Real-IP "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header Forwarded "";
+    proxy_set_header Via "";
+
+    more_clear_headers 'Server';
+    proxy_hide_header X-Powered-By;
+}
 ```
 
 </details>
@@ -259,18 +343,21 @@ location /s1/ {
 
 ## 三种方案对比
 
-| 特性 | 不分离 | 分离 | LilyEmby |
-|------|:------:|:----:|:--------:|
-| 配置复杂度 | 低 | 中 | 高 |
-| 独立推流节点 | - | 多节点 | 单/多节点 |
-| 302 重定向拦截 | - | `proxy_redirect` | `proxy_redirect` |
-| 响应体域名替换 | - | - | `sub_filter` |
-| 隐藏代理特征 | 请求头 + 响应头 | 请求头 + 响应头 | 请求头 + 响应头 + 响应体 |
+| 特性 | 不分离 | 分离 (HTTP) | 分离 (HTTPS) | LilyEmby |
+|------|:------:|:-----------:|:------------:|:--------:|
+| 配置复杂度 | 低 | 中 | 中 | 高 |
+| 推流节点协议 | - | HTTP | HTTPS | HTTPS |
+| 独立推流节点 | - | 多节点 | 单/多节点 | 单/多节点 |
+| SNI 配置 | 仅主站 | 仅主站 | 主站 + 推流 | 主站 + 推流 |
+| 302 重定向拦截 | - | `proxy_redirect` | `proxy_redirect` | `proxy_redirect` |
+| 响应体域名替换 | - | - | - | `sub_filter` |
+| 隐藏代理特征 | 请求头 + 响应头 | 请求头 + 响应头 | 请求头 + 响应头 | 请求头 + 响应头 + 响应体 |
 
 **选择建议**：
 
 - 只有一台 Emby 服务器、无推流分离 → **方案一**
-- 后端有独立推流节点、302 跳转到推流域名 → **方案二**
+- 后端有独立推流节点、推流为 HTTP → **方案二**
+- 后端有独立推流节点、推流为 HTTPS → **方案二-B**
 - 后端在 API 响应中硬编码了源站域名 → **方案三**
 
 ## 关键指令速查
@@ -278,7 +365,7 @@ location /s1/ {
 | 指令 | 作用 | 为什么需要 |
 |------|------|-----------|
 | `proxy_set_header Host $server` | 伪装 Host 为后端地址 | 防止后端检测到反代域名 |
-| `proxy_ssl_name` / `proxy_ssl_server_name on` | 设置 SNI | HTTPS 后端必须，否则证书校验失败 |
+| `proxy_ssl_name` / `proxy_ssl_server_name on` | 设置 SNI | HTTPS 后端必须，主站和 HTTPS 推流节点都需要配置 |
 | `proxy_set_header X-Real-IP ""` | 清空代理特征头 | NPM 默认会加这些头，暴露反代身份 |
 | `proxy_set_header Range $http_range` | 透传 Range 头 | 视频拖拽/断点续传必需 |
 | `proxy_buffering off` | 关闭响应缓冲 | Emby 官方推荐，降低播放延迟 |
