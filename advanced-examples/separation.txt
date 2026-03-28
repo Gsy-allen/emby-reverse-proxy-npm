@@ -1,0 +1,128 @@
+# ==========================================
+# 核心入口：反代 Emby 主程序
+# ==========================================
+location / {
+    proxy_pass $forward_scheme://$server:$port;
+
+    # 【必须修复】伪装 Host，让 Emby 主站以为是原域名直连
+    proxy_set_header Host $server;
+    proxy_ssl_name $server;
+    proxy_ssl_server_name on;
+
+    # 【流媒体补全】支持视频拖拽和断点续传（两项缺一不可）
+    proxy_set_header Range $http_range;
+    proxy_set_header If-Range $http_if_range;
+
+    # 【核心拦截】将三个推流源分别重定向到我们的 3 个伪装路径
+    proxy_redirect http://stream1.example.com https://yourdomain.com/s1/;
+    proxy_redirect http://stream2.example.com https://yourdomain.com/s2/;
+    proxy_redirect http://stream3.example.com https://yourdomain.com/s3/;
+
+    # 【抹除请求特征】对 Emby 主站隐身
+    proxy_set_header X-Real-IP "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header Forwarded "";
+    proxy_set_header Via "";
+
+    # 【抹除响应特征】对客户端（浏览器/APP）隐身，彻底隐藏 Nginx 身份
+    more_clear_headers 'Server';
+    proxy_hide_header X-Powered-By;
+}
+
+# ==========================================
+# 推流节点 1：代理 stream1.example.com
+# ==========================================
+location /s1/ {
+    rewrite ^/s1(/.*)$ $1 break;
+    proxy_pass http://stream.example.com;
+
+    proxy_set_header Referer "https://example-emby.com/web/index.html";
+    proxy_set_header Host $proxy_host;
+    # 传递 Range 头，实现视频拖拽
+    proxy_set_header Range $http_range;
+    proxy_set_header If-Range $http_if_range;
+
+    # 【流媒体补全】关闭缓冲并增加超时，防断流
+    proxy_buffering off;
+    proxy_connect_timeout 60s;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    # 【抹除请求特征】对 推流节点 1 隐身
+    proxy_set_header X-Real-IP "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header Forwarded "";
+    proxy_set_header Via "";
+
+    # 【抹除响应特征】对客户端隐身
+    more_clear_headers 'Server';
+    proxy_hide_header X-Powered-By;
+}
+
+# ==========================================
+# 推流节点 2：代理 stream2.example.com
+# ==========================================
+location /s2/ {
+    rewrite ^/s2(/.*)$ $1 break;
+    proxy_pass http://stream2.example.com;
+
+    proxy_set_header Referer "https://example-emby.com/web/index.html";
+    proxy_set_header Host $proxy_host;
+    # 传递 Range 头，实现视频拖拽
+    proxy_set_header Range $http_range;
+    proxy_set_header If-Range $http_if_range;
+
+    # 【流媒体补全】关闭缓冲并增加超时，防断流
+    proxy_buffering off;
+    proxy_connect_timeout 60s;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    # 【抹除请求特征】对 推流节点 2 隐身
+    proxy_set_header X-Real-IP "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header Forwarded "";
+    proxy_set_header Via "";
+
+    # 【抹除响应特征】对客户端隐身
+    more_clear_headers 'Server';
+    proxy_hide_header X-Powered-By;
+}
+
+# ==========================================
+# 推流节点 3：代理 stream3.example.com
+# ==========================================
+location /s3/ {
+    rewrite ^/s3(/.*)$ $1 break;
+    proxy_pass http://stream3.example.com;
+
+    proxy_set_header Referer "https://example-emby.com/web/index.html";
+    proxy_set_header Host $proxy_host;
+    # 传递 Range 头，实现视频拖拽
+    proxy_set_header Range $http_range;
+    proxy_set_header If-Range $http_if_range;
+
+    # 【流媒体补全】关闭缓冲并增加超时，防断流
+    proxy_buffering off;
+    proxy_connect_timeout 60s;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    # 【抹除请求特征】对 推流节点 3 隐身
+    proxy_set_header X-Real-IP "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header Forwarded "";
+    proxy_set_header Via "";
+
+    # 【抹除响应特征】对客户端隐身
+    more_clear_headers 'Server';
+    proxy_hide_header X-Powered-By;
+}

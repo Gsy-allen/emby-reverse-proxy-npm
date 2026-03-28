@@ -1,0 +1,81 @@
+# ==========================================
+# 核心入口：反代 Emby 主站
+# ==========================================
+location / {
+    proxy_pass $forward_scheme://$server:$port;
+
+    # 【伪装 1】伪装客户端 Host
+    proxy_set_header Host $server;
+    proxy_ssl_name $server;
+    proxy_ssl_server_name on;
+
+    # 【流媒体优化】支持视频拖拽和断点续传
+    proxy_set_header Range $http_range;
+    proxy_set_header If-Range $http_if_range;
+
+    # 【核心拦截 - 重定向头】处理 302 重定向
+    proxy_redirect https://stream.example.com https://lily.yourdomain.com/s1;
+    proxy_redirect https://www.example.com https://lily.yourdomain.com;
+
+    # =============================================
+    # 【核心新增 - 响应体替换】修改 JSON Body 中的绝对路径
+    # =============================================
+
+    # ❶ 强制上游返回未压缩内容，否则 sub_filter 无法工作！
+    proxy_set_header Accept-Encoding "";
+
+    # ❷ 指定需要替换的 Content-Type（默认只处理 text/html）
+    sub_filter_types application/json text/xml text/plain;
+
+    # ❸ 替换所有匹配项，而不是只替换第一个
+    sub_filter_once off;
+
+    # ❹ 替换响应体中的真实域名 → 反代域名
+    #    将 Emby 主站域名替换
+    sub_filter 'https://www.example.com' 'https://lily.yourdomain.com';
+    #    将推流 CDN 域名替换（以防某些接口直接返回推流地址）
+    sub_filter 'https://stream.example.com' 'https://lily.yourdomain.com/s1';
+
+    # 【抹除特征】
+    proxy_set_header X-Real-IP "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header Forwarded "";
+    proxy_set_header Via "";
+
+    # 【抹除响应头】
+    more_clear_headers 'Server';
+    proxy_hide_header X-Powered-By;
+}
+
+# ==========================================
+# 视频推流入口：代理真实的 CDN / 推流节点
+# ==========================================
+location /s1/ {
+    rewrite ^/s1(/.*)$ $1 break;
+    proxy_pass https://stream.example.com;
+
+    proxy_ssl_server_name on;
+    proxy_ssl_name stream.example.com;
+
+    proxy_set_header Range $http_range;
+    proxy_set_header If-Range $http_if_range;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header Referer "https://example-emby.com/web/index.html";
+
+    proxy_buffering off;
+    proxy_connect_timeout 60s;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    proxy_set_header X-Real-IP "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header Forwarded "";
+    proxy_set_header Via "";
+
+    more_clear_headers 'Server';
+    proxy_hide_header X-Powered-By;
+}

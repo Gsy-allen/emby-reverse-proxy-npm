@@ -1,0 +1,41 @@
+location / {
+    # ---------------- 基础反代目标 ----------------
+    proxy_pass $forward_scheme://$server:$port;
+
+    # ---------------- 伪装后端 (防 Emby 识破) ----------------
+    # Host 设置为后端服务器实际域名或 IP
+    proxy_set_header Host $server;
+
+    # HTTPS SNI 设置为后端服务器域名，避免证书警告
+    proxy_ssl_server_name on;
+    proxy_ssl_name $server;
+
+    # 【关键修复】覆盖并清空 NPM 默认自带的代理特征头
+    proxy_set_header X-Real-IP "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header X-Forwarded-Port "";
+
+    # 彻底清理请求中的 Via 头
+    proxy_set_header Via "";
+
+    # ---------------- 流媒体支持 ----------------
+    proxy_set_header Range $http_range;
+    proxy_set_header If-Range $http_if_range;
+
+    # 超时设置（确保长视频播放不中断）
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 180s;
+    proxy_read_timeout 180s;
+    proxy_buffering off; # Emby 官方推荐关闭缓冲，降低延迟
+
+    # ---------------- 伪装客户端 (防客户端识破) ----------------
+    # 隐藏后端可能返回的特征
+    proxy_hide_header X-Powered-By;
+    proxy_hide_header X-Frame-Options;
+    proxy_hide_header X-Content-Type-Options;
+
+    # 【关键修复】利用 NPM 内置的 OpenResty 彻底清除 Server 头
+    more_clear_headers 'Server';
+}
