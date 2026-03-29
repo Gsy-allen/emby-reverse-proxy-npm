@@ -1,6 +1,8 @@
 # Emby Reverse Proxy for Nginx Proxy Manager
 
-在 [Nginx Proxy Manager (NPM)](https://nginxproxymanager.com/) 中反向代理 Emby 服务器的配置范例，核心目标：**隐藏反代特征、支持流媒体拖拽、防止被后端识别**。
+在 [Nginx Proxy Manager (NPM)](https://nginxproxymanager.com/) 中反向代理 Emby 服务器的配置范例，核心目标：**减少不必要的代理暴露头信息、保持重定向与推流链路兼容、支持流媒体拖拽与断点续传**。
+
+> **说明**：本文重点是提升 NPM 反代 Emby 时的兼容性与可用性；其中对请求头、响应头的处理，主要用于减少代理环境带来的额外暴露信息，并非鼓励对抗性用途。
 
 ## 适用场景
 
@@ -16,6 +18,8 @@
 ### 1. 新建 Proxy Host — Details 页
 
 填写你的域名、后端 Emby 地址和端口，**务必开启 Websockets Support**。
+
+> **为什么要开 WebSocket**：Emby 的部分实时功能依赖 WebSocket；不开启时，可能出现会话状态不同步、播放控制异常或前端部分功能不正常。
 
 ![Details 页配置](screenshots/detail-page.png)
 
@@ -372,6 +376,72 @@ location /s1/ {
 | `more_clear_headers 'Server'` | 清除 Server 响应头 | 隐藏 Nginx 身份（依赖 NPM 内置 OpenResty） |
 | `proxy_redirect` | 重写 302 重定向目标 | 拦截推流域名跳转 |
 | `sub_filter` | 替换响应体内容 | 处理 JSON/XML 中硬编码的源站域名 |
+
+## 占位符替换说明
+
+### 必须替换
+
+下列示例值必须改成你自己的实际环境，否则配置只能当摆设：
+
+- `yourdomain.com`：你自己的反代域名
+- `lily.yourdomain.com`：LilyEmby 场景使用的反代域名
+- `stream.example.com` / `stream1.example.com` / `stream2.example.com` / `stream3.example.com`：真实推流节点域名
+- `example-emby.com` / `www.example.com`：Emby 主站源域名或你用于伪装 `Referer` 的目标域名
+
+### 不要修改
+
+下列内容是 NPM 或 Nginx 在运行时使用的变量/指令，除非你明确知道后果，否则不要改：
+
+- `$forward_scheme`
+- `$server`
+- `$port`
+- `$http_range`
+- `$http_if_range`
+- `proxy_buffering off`
+- `proxy_ssl_server_name on`
+
+## 常见问题 / 故障排查
+
+### 1. 能打开首页，但播放失败
+
+常见原因：
+
+- `proxy_redirect` 没匹配到 Emby 实际返回的推流域名
+- `/s1/`、`/s2/` 这类伪装路径和 `rewrite` 规则不一致
+- 推流节点对 `Host` 或 `Referer` 有校验，当前值不匹配
+- HTTPS 推流缺少 `proxy_ssl_server_name on` 或 `proxy_ssl_name`
+
+### 2. 可以播放，但拖拽 / 快进失败
+
+常见原因：
+
+- 没有透传 `Range` / `If-Range`
+- 上游推流节点本身不支持 Range 请求
+- 某一层代理或缓存破坏了 206 Partial Content 响应
+
+### 3. HTTPS 推流报证书错误
+
+常见原因：
+
+- `proxy_pass` 使用的地址与 `proxy_ssl_name` 不一致
+- 上游证书的 CN / SAN 与推流域名不匹配
+- Details 页填的是 IP，但上游 HTTPS 证书签发给的是域名
+
+### 4. LilyEmby 方案下 `sub_filter` 不生效
+
+常见原因：
+
+- 上游响应仍然是 gzip 压缩内容，`sub_filter` 无法处理
+- 实际响应的 `Content-Type` 不在 `sub_filter_types` 范围内
+- 后端返回的不是完整绝对 URL，而是其他格式，导致替换规则没命中
+
+### 5. NPM 保存配置时报错
+
+常见原因：
+
+- Custom Nginx Configuration 中写入了不允许出现在该上下文的指令
+- 分号、引号或路径前缀写错
+- 复制配置时遗漏了某一行，导致 `location` 块不完整
 
 ## 注意事项
 
