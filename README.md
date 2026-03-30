@@ -1,5 +1,7 @@
 # Emby Reverse Proxy for Nginx Proxy Manager
 
+> **警告：不要把这个项目用于禁止反代的服务器，否则后果自负。**
+
 在 [Nginx Proxy Manager (NPM)](https://nginxproxymanager.com/) 中反向代理 Emby 服务器的配置范例，核心目标：**减少不必要的代理暴露头信息、保持重定向与推流链路兼容、支持流媒体拖拽与断点续传**。
 
 > **说明**：本文重点是提升 NPM 反代 Emby 时的兼容性与可用性；其中对请求头、响应头的处理，主要用于减少代理环境带来的额外暴露信息，并非鼓励对抗性用途。
